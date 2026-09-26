@@ -1,39 +1,132 @@
 # LockfileAudit
 
-TODO: Delete this and the text below, and describe your gem
+Returns a JSON package inventory plus vulnerability audit data for a Ruby
+project, in a single payload.
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/lockfile_audit`. To experiment with that code, run `bin/console` for an interactive prompt.
+`lockfile_audit` parses a `Gemfile.lock` for the resolved gem list and pairs it
+with findings from [bundler-audit](https://github.com/rubysec/bundler-audit).
+The result is a plain, JSON-ready Hash you can expose from a Rails endpoint,
+feed into a dashboard, or archive for compliance.
 
 ## Installation
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
+Add it to your Gemfile:
 
-Install the gem and add to the application's Gemfile by executing:
+    gem "lockfile_audit"
 
-```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
-```
+Then run `bundle install`.
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+To collect vulnerability data, `bundler-audit` must be available on your
+PATH:
 
-```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
-```
+    gem install bundler-audit
+    bundle-audit update   # fetch the advisory database
+
+If you would rather manage that step yourself, you can pass pre-computed
+audit JSON instead — see Usage.
 
 ## Usage
 
-TODO: Write usage instructions here
+### Basic
+
+    require "lockfile_audit"
+
+    LockfileAudit.report(gemfile_lock_path: "Gemfile.lock")
+
+This returns:
+
+    {
+      "generated_at": "2026-09-26T11:09:28Z",
+      "packages": [
+        { "name": "rails", "version": "7.1.3" },
+        { "name": "nokogiri", "version": "1.16.2" },
+        { "name": "pg", "version": "1.5.6" }
+      ],
+      "audit": {
+        "vulnerabilities": [
+          {
+            "gem": "nokogiri",
+            "version": "1.16.2",
+            "criticality": "High",
+            "description": "Nokogiri Command Injection Vulnerability"
+          }
+        ]
+      }
+    }
+
+### Passing pre-computed audit JSON
+
+If you already run `bundle-audit` in your own CI pipeline, or want to avoid
+shelling out at request time, pass its JSON output directly:
+
+    audit_json = File.read("tmp/bundle-audit.json")
+
+    LockfileAudit.report(
+      gemfile_lock_path: "Gemfile.lock",
+      audit_json: audit_json
+    )
+
+When `audit_json:` is provided, `lockfile_audit` does not invoke
+`bundler-audit` at all.
+
+### From a Rails controller
+
+    class PackageAuditController < ApplicationController
+      def show
+        render json: LockfileAudit.report(
+          gemfile_lock_path: Rails.root.join("Gemfile.lock").to_s
+        )
+      end
+    end
+
+## Payload schema
+
+| Key | Type | Notes |
+|-----|------|-------|
+| `generated_at` | String | ISO 8601 UTC timestamp, e.g. `"2026-09-26T11:09:28Z"` |
+| `packages` | Array | Sorted by `name`; each entry has `name` and `version` |
+| `audit` | Hash | Contains a single `vulnerabilities` key |
+| `audit.vulnerabilities` | Array | Each entry has `gem`, `version`, `criticality`, and `description` |
+
+All keys are symbols when you consume the Hash in Ruby, and strings when
+serialized to JSON. `description` falls back to the advisory title when no
+longer description is available.
+
+## Errors
+
+All errors inherit from `LockfileAudit::Errors::Error`.
+
+| Error | Raised when |
+|-------|-------------|
+| `LockfileNotFound` | The `Gemfile.lock` file does not exist at the given path |
+| `BundlerAuditNotInstalled` | `bundle-audit` is not on `PATH` and no `audit_json:` was passed |
+| `InvalidAuditJson` | The supplied audit JSON cannot be parsed |
+
+## How it works
+
+- Packages are read from the `specs:` blocks of `Gemfile.lock`. Only
+  top-level specs are collected; transitive dependency lines (which carry a
+  version constraint rather than a resolved version) are ignored.
+- Vulnerabilities come from `bundle-audit check --format json`. The output
+  is normalized to tolerate both known schema shapes: a bare Array of
+  findings, or a Hash with a `results` key.
+- The `bundle-audit` subprocess runs with a scrubbed environment, so the
+  parent process's Bundler state (`BUNDLE_*`, `RUBYOPT`) does not leak into
+  it. This makes the collector safe to call from inside a running Rails app.
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+    bundle install
+    bundle exec rspec
+    bundle exec standardrb
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+To release a new version:
 
-## Contributing
-
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/lockfile_audit.
+1. Bump `lib/lockfile_audit/version.rb`.
+2. Update `CHANGELOG.md`.
+3. `gem build lockfile_audit.gemspec`
+4. `gem push lockfile_audit-<version>.gem`
 
 ## License
 
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
+MIT. See LICENSE.txt.

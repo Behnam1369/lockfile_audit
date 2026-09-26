@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "gem": "nokogiri",
+      "version": "1.16.2",
+      "advisory": {
+        "package": "nokogiri",
+        "affected_versions": "1.16.2",
+        "criticality": "High",
+        "title": "Nokogiri Command Injection Vulnerability"
+      }
+    }
+  ]
+}

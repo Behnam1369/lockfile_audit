@@ -1,0 +1,14 @@
+[
+  {
+    "gem": "nokogiri",
+    "version": "1.16.2",
+    "criticality": "High",
+    "title": "Nokogiri Command Injection Vulnerability"
+  },
+  {
+    "gem": "rack",
+    "version": "2.2.6",
+    "criticality": "Medium",
+    "title": "Rack ReDoS Vulnerability"
+  }
+]
